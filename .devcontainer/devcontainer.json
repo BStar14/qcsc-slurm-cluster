@@ -1,0 +1,27 @@
+// VS Code Dev Containers: open the login node of the cluster as the qcsc user.
+// "Dev Containers: Reopen in Container" starts the whole compose.yml cluster (or
+// attaches to the one that `make up` started) and opens ~/qcsc-prefect on login.
+{
+  "name": "qcsc-slurm-cluster (login node)",
+  "dockerComposeFile": ["../compose.yml"],
+  "service": "login",
+  "remoteUser": "qcsc",
+  "workspaceFolder": "/home/qcsc/qcsc-prefect",
+  // Keep the image's entrypoint and the login role (munged, sshd).
+  "overrideCommand": false,
+  // Closing VS Code leaves the cluster running; `make down` stops it.
+  "shutdownAction": "none",
+  // Keep uid 1000: the shared home volume and the compute nodes use it.
+  "updateRemoteUserUID": false,
+  // As `make up`: return c1 and c2 to service after a restart.
+  "postStartCommand": "sudo scontrol update nodename=c[1-2] state=resume 2>/dev/null || true",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"],
+      "settings": {
+        "python.defaultInterpreterPath": "/home/qcsc/venv/qcsc-host/bin/python",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

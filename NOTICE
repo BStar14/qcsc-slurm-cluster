@@ -1,0 +1,83 @@
+qcsc-slurm-cluster
+Copyright (c) 2026 Boseong Kim. Licensed under the MIT License (see LICENSE).
+
+This repository adapts files from, and the image it builds contains, the following
+third-party software. Each component keeps its own license.
+
+slurm-docker-cluster
+  https://github.com/giovtorres/slurm-docker-cluster
+  Copyright (c) 2024 Giovanni Torres. MIT License.
+  Adapted: the Dockerfile build steps, docker-entrypoint.sh, the compose layout, and
+  slurmdbd.conf, cgroup.conf and slurm.conf (through the SPANK plugin demo of
+  spank-plugins).
+
+Slurm Workload Manager (slurm-25-11-6-1)
+  https://github.com/SchedMD/slurm
+  GNU General Public License v2.0 or later, with an exception for linking with OpenSSL.
+  Built from the tag above; the source is available at that URL and tag.
+
+QRMI SPANK plugin (spank-plugins, commit c3d5679e688ad77146a15335fc2ab466429a2895)
+  https://github.com/qiskit-community/spank-plugins
+  Copyright IBM, Pasqal 2025, 2026. GNU General Public License v3.0.
+  The image contains the compiled plugin at /usr/lib64/slurm/spank_qrmi.so and the
+  complete corresponding source at /usr/src/spank-plugins.
+
+QRMI (commit 3deb5124c448b73f1a44c083d18517c42df7e23a)
+  https://github.com/qiskit-community/qrmi
+  Copyright 2025 IBM and its contributors. Apache License 2.0.
+  Linked statically (libqrmi.a) into spank_qrmi.so.
+
+OpenMPI 4.1.8
+  https://www.open-mpi.org/
+  3-clause BSD license (see /opt/openmpi/share/doc/openmpi or the OpenMPI LICENSE file).
+
+OpenPMIx 4.1.3
+  https://github.com/openpmix/openpmix
+  3-clause BSD license.
+
+gosu 1.17
+  https://github.com/tianon/gosu
+  Apache License 2.0.
+
+Rocky Linux 9 base image and packages
+  https://rockylinux.org/
+  Each package under its own license (see /usr/share/licenses in the image).
+
+MariaDB 10.11 (the separate mariadb:10.11 image that compose.yml runs)
+  https://mariadb.org/
+  GNU General Public License v2.0.
+
+The default image (target qcsc) also contains, in /home/qcsc and /opt:
+
+qcsc-prefect (the ref in the image label io.qcsc.qcsc-prefect.ref)
+  https://github.com/qiskit-community/qcsc-prefect
+  Apache License 2.0. A git checkout at /home/qcsc/qcsc-prefect.
+
+Fulqrum (the commit that qcsc-prefect's build_fulqrum.sh pins)
+  https://github.com/Qiskit/qiskit-fulqrum
+  Apache License 2.0. Built from source, with its source at
+  /home/qcsc/qcsc-prefect/packages/qcsc-prefect-fulqrum/native/external/fulqrum.
+
+PRIMME
+  https://github.com/primme/primme
+  3-clause BSD license. Built from the PyPI sdist into the Fulqrum environment.
+
+ffsim
+  https://github.com/qiskit-community/ffsim
+  Apache License 2.0. On arm64, built from the PyPI sdist.
+
+uv
+  https://github.com/astral-sh/uv
+  MIT License or Apache License 2.0. In /home/qcsc/.local/bin.
+
+JupyterLab
+  https://github.com/jupyterlab/jupyterlab
+  3-clause BSD license. In /opt/jupyter.
+
+Python packages from PyPI in the environments under /home/qcsc/venv, /opt/jupyter and
+the Fulqrum environment, including Prefect (Apache 2.0), Qiskit (Apache 2.0), QRMI
+(Apache 2.0) and PySCF (Apache 2.0). Each keeps its own license, in the dist-info
+directory of the package; ~/venv/*.freeze.txt lists them.
+
+The Rust toolchains used to build QRMI and ffsim run in build stages only and are not
+part of the image.

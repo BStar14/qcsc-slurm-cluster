@@ -1,0 +1,131 @@
+name: publish
+
+# Builds linux/amd64 and linux/arm64 on native runners, pushes each by digest to Quay,
+# then joins them in one multi-arch tag. Pull requests and manual runs only build;
+# a v* tag also pushes <version> and latest.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      qcsc_prefect_ref:
+        description: qcsc-prefect branch or tag to preinstall
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: quay.io/boseong14/qcsc-slurm-cluster
+  QCSC_PREFECT_REPO: https://github.com/qiskit-community/qcsc-prefect.git
+  QCSC_PREFECT_REF: ${{ inputs.qcsc_prefect_ref || 'main' }}
+  PUSH: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      # One commit for both platforms; it also keys the build cache of the qcsc layer.
+      - id: sha
+        run: |
+          sha=$(git ls-remote "$QCSC_PREFECT_REPO" | awk -v r="$QCSC_PREFECT_REF" \
+            '$2 == "refs/heads/" r {h = $1} $2 == "refs/tags/" r "^{}" {p = $1}
+             $2 == "refs/tags/" r {t = $1} END {print h ? h : (p ? p : t)}')
+          test -n "$sha" || { echo "no branch or tag $QCSC_PREFECT_REF"; exit 1; }
+          echo "qcsc-prefect $QCSC_PREFECT_REF at $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Platform name
+        run: echo "PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The bundled compose.yml runs the version tag that this build is pushed as.
+          build-args: |
+            QCSC_CLUSTER_IMAGE=${{ env.PUSH == 'true' && format('{0}:{1}', env.IMAGE, steps.meta.outputs.version) || format('{0}:latest', env.IMAGE) }}
+            QCSC_PREFECT_REPO=${{ env.QCSC_PREFECT_REPO }}
+            QCSC_PREFECT_REF=${{ env.QCSC_PREFECT_REF }}
+            QCSC_PREFECT_SHA=${{ needs.resolve.outputs.sha }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ env.PUSH }}
+          cache-from: type=gha,scope=${{ env.PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PAIR }}
+      - name: Export the digest
+        if: env.PUSH == 'true'
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+      - uses: actions/upload-artifact@v4
+        if: env.PUSH == 'true'
+        with:
+          name: digests-${{ env.PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+      - uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+      - name: Create the multi-arch tags
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+      - name: Inspect
+        run: docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"

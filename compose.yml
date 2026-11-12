@@ -1,0 +1,121 @@
+# qcsc-slurm-cluster: login + c1 + c2 + slurmctld + slurmdbd + MariaDB.
+# Shared between login, c1 and c2: /home, /shared and /etc/slurm (named volumes).
+# Docker fills the home and shared volumes from the image when it creates them, so the
+# preinstalled qcsc-prefect checkout and environments appear on every node. No `build:`
+# here: `make build` builds the image, and VS Code Dev Containers only pulls it.
+#
+# The project qcsc-demo names the containers (qcsc-demo-login, qcsc-demo-c1, ...) and the
+# volumes (qcsc-demo_home, ...). The hostnames stay login, c1, c2, ..., as slurm.conf
+# names them.
+name: qcsc-demo
+
+x-node: &node
+  image: ${QCSC_CLUSTER_IMAGE:-quay.io/boseong14/qcsc-slurm-cluster:latest}
+  networks: [cluster]
+  environment:
+    QCSC_NODE_CPUS: ${QCSC_NODE_CPUS:-4}
+    QCSC_NODE_MEMORY_MB: ${QCSC_NODE_MEMORY_MB:-7000}
+
+x-compute: &compute
+  <<: *node
+  command: ["slurmd"]
+  cpus: ${QCSC_NODE_CPUS:-4}
+  mem_limit: ${QCSC_NODE_MEM_LIMIT:-8g}
+  # After login, so that login fills the new home and shared volumes, alone.
+  depends_on: [slurmctld, login]
+  expose: ["6818"]
+
+services:
+  mysql:
+    container_name: ${COMPOSE_PROJECT_NAME}-mysql
+    image: mariadb:10.11
+    hostname: mysql
+    networks: [cluster]
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: slurm_acct_db
+      MARIADB_USER: slurm
+      MARIADB_PASSWORD: password
+    volumes:
+      - mysql:/var/lib/mysql
+
+  slurmdbd:
+    container_name: ${COMPOSE_PROJECT_NAME}-slurmdbd
+    <<: *node
+    command: ["slurmdbd"]
+    hostname: slurmdbd
+    depends_on: [mysql]
+    expose: ["6819"]
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - log_slurmdbd:/var/log/slurm
+
+  slurmctld:
+    container_name: ${COMPOSE_PROJECT_NAME}-slurmctld
+    <<: *node
+    command: ["slurmctld"]
+    hostname: slurmctld
+    expose: ["6817"]
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - state_slurmctld:/var/lib/slurmd
+      - log_slurmctld:/var/log/slurm
+
+  c1:
+    container_name: ${COMPOSE_PROJECT_NAME}-c1
+    <<: *compute
+    hostname: c1
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - home:/home
+      - shared:/shared
+      - log_c1:/var/log/slurm
+
+  c2:
+    container_name: ${COMPOSE_PROJECT_NAME}-c2
+    <<: *compute
+    hostname: c2
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - home:/home
+      - shared:/shared
+      - log_c2:/var/log/slurm
+
+  login:
+    container_name: ${COMPOSE_PROJECT_NAME}-login
+    <<: *node
+    command: ["login"]
+    hostname: login
+    depends_on: [slurmctld]
+    environment:
+      QCSC_AUTHORIZED_KEYS: ${QCSC_AUTHORIZED_KEYS:-}
+    ports:
+      # Optional ways in: SSH (after `make add-key`) and JupyterLab (`make jupyter`).
+      - "127.0.0.1:${SSH_PORT:-2222}:22"
+      - "127.0.0.1:${JUPYTER_PORT:-8888}:8888"
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - home:/home
+      - shared:/shared
+      - ssh_host_keys:/etc/ssh/keys
+
+networks:
+  cluster:
+
+volumes:
+  etc_munge:
+  etc_slurm:
+  home:
+  shared:
+  ssh_host_keys:
+  mysql:
+  state_slurmctld:
+  log_slurmdbd:
+  log_slurmctld:
+  log_c1:
+  log_c2:

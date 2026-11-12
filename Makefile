@@ -56,9 +56,16 @@ build-cluster:
 	docker buildx build --load --target cluster -t $(CLUSTER_IMAGE) \
 	  --build-arg QCSC_CLUSTER_IMAGE="$(CLUSTER_IMAGE)" .
 
+# Waits up to 2 minutes for slurmctld (the first start initializes MariaDB), and stops
+# early if a container exits, with its status and where to look.
 up:
 	$(COMPOSE) up -d
-	@for i in $$(seq 30); do $(COMPOSE) exec -T slurmctld scontrol ping >/dev/null 2>&1 && break; sleep 2; done
+	@for i in $$(seq 60); do \
+	  $(COMPOSE) exec -T slurmctld scontrol ping >/dev/null 2>&1 && exit 0; \
+	  [ -n "$$($(COMPOSE) ps -a -q --status exited)" ] && break; sleep 2; done; \
+	  echo "The Slurm controller is not up. Containers:"; \
+	  $(COMPOSE) ps -a --format '  {{.Name}}: {{.Status}}'; \
+	  echo "See the logs with: $(COMPOSE) logs mysql slurmdbd slurmctld"; exit 1
 	@for n in c1 c2; do $(COMPOSE) exec -T slurmctld scontrol update nodename=$$n state=resume 2>/dev/null || true; done
 	@$(COMPOSE) exec -T login sinfo
 

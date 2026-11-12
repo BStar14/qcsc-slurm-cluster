@@ -106,8 +106,9 @@ login)
         cp -a /etc/skel /home/qcsc
         chown -R qcsc:qcsc /home/qcsc
     fi
+    # No cmp (diffutils) in the image: compare the stamps in bash.
     if [ -f /usr/share/qcsc-cluster/build ] &&
-        ! cmp -s /usr/share/qcsc-cluster/build /home/qcsc/.qcsc-cluster-build; then
+        [ "$(cat /usr/share/qcsc-cluster/build)" != "$(cat /home/qcsc/.qcsc-cluster-build 2>/dev/null)" ]; then
         log "WARNING: /home/qcsc is not from this image, so its qcsc-prefect checkout and" \
             "environments may be missing or old. To replace them, run \`make reset-home\`," \
             "which deletes everything in /home/qcsc."

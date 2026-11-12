@@ -135,7 +135,7 @@ smoke:
 	  echo "== qcsc-prefect $$(git -C ~/qcsc-prefect log -1 --format="%h %cs")"; uv --version; \
 	  echo "== ~/venv/qcsc-host"; \
 	  ls ~/venv/qcsc-host/bin/{prefect,qcsc-qrmi,sqd-create-blocks,sqd-deploy}; \
-	  ~/venv/qcsc-host/bin/python -c "import ffsim, sqd_common, qcsc_prefect_executor; ffsim.FermionOperator({(): 1.0}); print(\"imports ok\")"; \
+	  ~/venv/qcsc-host/bin/python -c "import ffsim, qrmi, sqd_common, qcsc_prefect_executor; ffsim.FermionOperator({(): 1.0}); print(\"imports ok\")"; \
 	  echo "== ~/venv/qcsc-node on c1"; \
 	  srun -N1 -w c1 ~/venv/qcsc-node/bin/python -c "import qrmi, qcsc_prefect.integrations.qiskit.qrmi.worker, sqd_common.transpile; print(\"imports ok\")"; \
 	  srun -N1 -w c1 ls ~/venv/qcsc-node/bin/task_runner; \

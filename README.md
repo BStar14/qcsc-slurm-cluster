@@ -30,7 +30,7 @@ of the tutorial:
 |---|---|---|
 | uv | `~/.local/bin/uv` | Setup guide, Step 2 |
 | qcsc-prefect checkout, branch `main` | `~/qcsc-prefect` | Setup guide, Step 4 |
-| Workflow environment, with the SQD workflow and the Fulqrum integration | `~/venv/qcsc-host` | Setup guide, Step 5, and the tutorial's "Install the SQD workflow on the workflow host" |
+| Workflow environment, with the SQD workflow, the Fulqrum integration, and QRMI for the IQP path | `~/venv/qcsc-host` | Setup guide, Step 5, and the tutorial's "Install the SQD workflow on the workflow host". QRMI is an extra of this image; the guide installs it only in `~/venv/qcsc-node` |
 | Compute-node environment: QRMI with `task_runner`, `qcsc-prefect-qiskit`, and the SQD transpilation hook | `~/venv/qcsc-node` | Setup guide, Step 8, and the tutorial's "Install the Fulqrum solver on a compute node" |
 | Fulqrum with PRIMME, and `qcsc-fulqrum-solve` | `~/qcsc-prefect/packages/qcsc-prefect-fulqrum/native/fulqrum` | The tutorial's "Install the Fulqrum solver on a compute node" |
 
@@ -75,7 +75,8 @@ place of `latest`.
 
 `make smoke` checks the cluster and the installation: `srun` on both nodes, an MPI program
 on 2 nodes x 2 ranks, the `--qpu` option of the SPANK plugin, the shared `/home` and
-`/shared`, both environments, and Fulqrum on a compute node.
+`/shared`, both environments (including QRMI on the workflow host), and Fulqrum on a
+compute node.
 
 The containers are `qcsc-demo-login`, `qcsc-demo-c1`, `qcsc-demo-c2`, `qcsc-demo-slurmctld`,
 `qcsc-demo-slurmdbd`, and `qcsc-demo-mysql`, and the volumes start with `qcsc-demo_`.
@@ -95,17 +96,9 @@ from Step 3. Skip the steps in the following table, because the image did them.
 | Step 4: Clone qcsc-prefect | Done, on `main`, which holds the release |
 | Step 5: Create the workflow environment | Done. Still activate it in each new shell: `source ~/venv/qcsc-host/bin/activate` |
 | Step 6: Log in to Prefect | **Do it** |
-| Step 7: Store the IBM Quantum credentials | **Do it**, then install the file for the SPANK plugin, as in the following command |
+| Step 7: Store the IBM Quantum credentials | **Do it**. For the Slurm path, also install the file for the SPANK plugin, as in [Choose how the workflow reaches the QPU](#choose-how-the-workflow-reaches-the-qpu) |
 | Step 8: Create the compute-node environment | Done |
 | Step 9: Verify the setup | **Do it** |
-
-You are the cluster administrator here, and `/etc/slurm` is one volume for all nodes. After
-`qcsc-qrmi login` or `qcsc-qrmi refresh`, one command on the login node installs the file
-on every compute node:
-
-```bash
-sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json
-```
 
 Then, in the tutorial's Requirements section, skip "Install the SQD workflow on the
 workflow host" and "Install the Fulqrum solver on a compute node", and start at "Configure
@@ -122,6 +115,71 @@ and create the Prefect blocks on the workflow host". Use the following values in
 
 Keep `project` commented out, because the cluster has no Slurm accounts. The compute nodes
 are `c1` and `c2`.
+
+## Choose how the workflow reaches the QPU
+
+The workflow samples the QPU along one of two paths. Both use QRMI and the same
+`qrmi-runtime` block, whose **Scheduler** field records the path.
+
+| | Slurm path (`scheduler = "slurm"`) | IQP path (`scheduler = "iqp"`) |
+|---|---|---|
+| Who runs the QPU step | A Slurm job on a compute node, submitted with `--qpu=<backend>` | The workflow process on the login node, without a Slurm job |
+| Who reaches IBM Quantum | The QRMI SPANK plugin, which the cluster administrator installs and configures | QRMI in `~/venv/qcsc-host`, directly |
+| Credentials | `/etc/slurm/qrmi_config.json`, which the administrator keeps | `~/.qiskit/qrmi_config.json`, which `qcsc-qrmi login` writes |
+| QPU access | The plugin acquires the QPU when the job starts, as an IBM Quantum batch, and releases it when the job ends | Each sampling job goes to IBM Quantum on its own, without a session |
+| Transpilation | On the compute node | On the login node |
+| Slurm accounting | `sacct` records the `qpu` resource of the job | Slurm does not see the QPU step |
+| Cost | The QRMI job holds a compute node while its job waits in the IBM Quantum queue | No node is held |
+
+### Why the Slurm path is the QCSC integration
+
+In quantum-centric supercomputing (QCSC), the QPU is one more resource of the HPC system,
+next to its CPUs and GPUs. The Slurm path makes that literal. A job requests the QPU like
+any other resource, with `--qpu`, and the scheduler decides when the job runs. The
+cluster administrator decides which QPUs jobs may use and with which credentials, and the
+site's accounting records the use. The quantum step runs on a compute node, next to the
+classical steps of the same workflow, under the same queues and policies.
+
+The IQP path treats the QPU as a cloud service that the workflow calls from the login
+node. It needs no administrator and no plugin, so it suits development, quick tests, and
+HPC systems without the QRMI plugin, such as Miyabi and Fugaku today. The scheduler does
+not see or plan the quantum step, though, so the IQP path does not show the integration
+that the QCSC-Prefect tutorial is about.
+
+### Slurm path
+
+This step is for the path where the cluster administrator integrates QRMI with the Slurm
+scheduler. The SPANK plugin reads only the `qrmi_config.json` that `plugstack.conf`
+names, `/etc/slurm/qrmi_config.json`, never the file in your home directory. On a real
+cluster, the administrator installs that file on every compute node. On this cluster, you
+are the administrator, and `/etc/slurm` is one volume for all nodes. After each
+`qcsc-qrmi login` or `qcsc-qrmi refresh`, run the following command on the login node.
+
+```bash
+sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json
+```
+
+Without it, the QRMI job fails within seconds, and its `output.err` starts with
+`spank_qrmi, resource <backend> not found in /etc/slurm/qrmi_config.json`. Keep the
+`[qrmi]` table of `sqd_blocks.toml` as the example file has it.
+
+### IQP path
+
+The workflow reads the API key from `~/.qiskit/qrmi_config.json` when it samples, so the
+`sudo install` step is not needed. In `sqd_blocks.toml`, comment out the `[qrmi]` table,
+and uncomment the `[runtime]` table.
+
+```toml
+# [qrmi]
+
+[runtime]
+scheduler = "iqp"
+```
+
+Then run `sqd-create-blocks` again, and restart `sqd-deploy`. On a cluster that you set up
+from the setup guide, first install QRMI in the workflow environment with
+`uv pip install --python ~/venv/qcsc-host/bin/python "qrmi[ibm]"`. This image already has
+it.
 
 ## Other ways in
 
@@ -182,7 +240,7 @@ with `make down && make up`, or start over with `make clean`.
 | `WARNING: /home/qcsc is not from this image` in `docker compose logs login` | See [Update to a new image](#update-to-a-new-image) |
 | `make jupyter` says that port 8888 is in use | Set `JUPYTER_PORT` in `.env`, then `make down && make up` |
 | SSH warns that the host key changed | The `ssh_host_keys` volume was recreated; remove the old line with `ssh-keygen -R "[127.0.0.1]:2222"` |
-| `--qpu` jobs fail with a QRMI resource error | `/etc/slurm/qrmi_config.json` does not list that QPU; install the file from `qcsc-qrmi login` again |
+| A QRMI job fails, and `output.err` says `resource <backend> not found in /etc/slurm/qrmi_config.json` | The plugin's file does not list that QPU; install your file as in [Slurm path](#slurm-path), or use the [IQP path](#iqp-path) |
 
 ## Security notes
 

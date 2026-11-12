@@ -85,6 +85,13 @@ uv pip install \
     -e 'packages/qcsc-prefect-qiskit[slurm]'
 which prefect qcsc-qrmi
 
+step "Image extra: QRMI on the workflow host, for the IQP path"
+# The setup guide installs QRMI only in ~/venv/qcsc-node, for the Slurm path. With
+# scheduler="iqp", the workflow process itself samples through QRMI, on this host. Same
+# version and wheel rule as in Step 8.
+uv pip install --only-binary ibm-platform-services "qrmi[ibm]==${QRMI_PIP_VERSION}"
+python -c "import qrmi"
+
 step "Step 8: Create ~/venv/qcsc-node"
 uv venv ~/venv/qcsc-node -p 3.12
 # One command, not the guide's two: alone, qrmi[ibm] (qiskit-ibm-runtime>=0.30) resolved to

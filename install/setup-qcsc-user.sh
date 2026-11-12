@@ -27,10 +27,28 @@ step() { echo; echo "=== $*"; }
 # Python: every venv uses the image's /usr/bin/python3.12, the same on every node.
 export UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 
-# Whether a shared library has Arm SVE instructions (the PyPI aarch64 ffsim wheel does,
-# and they raise SIGILL on CPUs without SVE, such as Apple Silicon).
-has_sve() {
-    objdump -d --no-show-raw-insn "$1" | grep -qE '\s(index|ptrue|whilelo|whilelt|ld1d|st1d)\s+[zp][0-9]'
+# Fail if a library compiled in this image has instructions beyond the portable baseline:
+# Arm SVE on aarch64, AVX-512 on x86_64. They come from building for the build machine's
+# CPU (ffsim's target-cpu=native), and raise SIGILL on CPUs without them, such as Apple
+# Silicon. Only for libraries built here: PyPI's NumPy and SciPy carry OpenBLAS kernels
+# that pick the instruction set at run time. grep -c reads all of objdump's output; with
+# grep -q, objdump's SIGPIPE would fail the pipeline under pipefail and hide a match.
+check_portable() {
+    local re what so n
+    case "$(uname -m)" in
+    aarch64) re='\s[zp][0-9]{1,2}(\.[bhsdq]|/[mz])' what=SVE ;;
+    x86_64) re='zmm[0-9]' what=AVX-512 ;;
+    *) echo "error: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+    esac
+    [ "$#" -gt 0 ] || { echo "error: check_portable got no libraries" >&2; exit 1; }
+    for so in "$@"; do
+        n=$(objdump -d --no-show-raw-insn "$so" | grep -cE "$re" || true)
+        if [ "$n" -gt 0 ]; then
+            echo "error: $so has $n $what instructions" >&2
+            exit 1
+        fi
+    done
+    echo "$# libraries without $what instructions"
 }
 
 step "Step 2: Install uv $UV_VERSION"
@@ -78,7 +96,7 @@ uv pip install --python ~/venv/qcsc-node/bin/python --only-binary ibm-platform-s
     "qrmi[ibm]==${QRMI_PIP_VERSION}" -e packages/qcsc-prefect-qiskit
 
 step "Tutorial: Install the SQD workflow on the workflow host"
-# ffsim first, from the wheel of the image's ffsim stage (built from source on arm64).
+# ffsim first, from the wheel of the image's ffsim stage (built for the portable baseline).
 # The SQD install keeps it, since it already satisfies the unpinned requirement.
 uv pip install "$FFSIM_WHEEL_DIR"/ffsim-"${FFSIM_VERSION}"-*.whl
 uv pip install --no-deps -e packages/qcsc-prefect-fulqrum
@@ -90,14 +108,7 @@ installed=$(python -c "from importlib.metadata import version; print(version('ff
     echo "error: the SQD install replaced ffsim $FFSIM_VERSION with $installed" >&2
     exit 1
 }
-if [ "$(uname -m)" = aarch64 ]; then
-    for so in ~/venv/qcsc-host/lib/python3.12/site-packages/ffsim/_lib*.so; do
-        if has_sve "$so"; then
-            echo "error: $so has SVE instructions" >&2
-            exit 1
-        fi
-    done
-fi
+check_portable ~/venv/qcsc-host/lib/python3.12/site-packages/ffsim/_lib*.so
 # ffsim has no __version__; $installed is its version from the package metadata.
 python -c "import ffsim; ffsim.FermionOperator({(): 1.0})"
 echo "ffsim $installed: FermionOperator ok"
@@ -112,6 +123,9 @@ deactivate
 step "Tutorial: Build Fulqrum with PRIMME"
 PYTHON=python3.12 FULQRUM_WITH_PRIMME=1 bash packages/qcsc-prefect-fulqrum/native/build_fulqrum.sh
 realpath packages/qcsc-prefect-fulqrum/native/fulqrum/bin/qcsc-fulqrum-solve
+fq_site=packages/qcsc-prefect-fulqrum/native/fulqrum/lib/python3.12/site-packages
+mapfile -t fq_libs < <(find "$fq_site/fulqrum" "$fq_site"/primme*.so -name '*.so')
+check_portable "${fq_libs[@]}"
 
 step "Record the installed packages"
 for v in qcsc-host qcsc-node; do

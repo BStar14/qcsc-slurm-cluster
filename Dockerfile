@@ -106,29 +106,33 @@ RUN source ~/.cargo/env \
     && install -D -m755 spank_qrmi.so /out/usr/lib64/slurm/spank_qrmi.so
 
 # ------------------------------------------------------------------ ffsim wheel
-# The PyPI manylinux aarch64 wheels of ffsim have Arm SVE instructions, which raise
-# SIGILL on CPUs without SVE, such as Apple Silicon under Docker. On arm64, build the
-# wheel from the sdist for the generic aarch64 target and check it; on amd64, use the
-# PyPI wheel.
+# ffsim's .cargo/config.toml builds for `-C target-cpu=native`, the CPU of the build
+# machine: its PyPI wheels and a build on a CI runner can have Arm SVE (aarch64) or AVX-512
+# (x86_64) instructions, which raise SIGILL on CPUs without them, such as Apple Silicon.
+# Build the wheel from the sdist on both platforms for the portable baseline (RUSTFLAGS
+# overrides the config file), and fail if the library still has such instructions.
+# grep -c, not grep -q: an early grep exit gives objdump SIGPIPE, which pipefail turns
+# into a failed pipeline, so a match would pass unnoticed.
 FROM build-base AS ffsim-wheel
 ARG FFSIM_VERSION
 ARG TARGETARCH
 RUN dnf -y install python3.12 python3.12-devel python3.12-pip binutils && dnf clean all
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 RUN set -euo pipefail; \
-    if [ "$TARGETARCH" = arm64 ]; then \
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; \
-        source ~/.cargo/env; \
+    source ~/.cargo/env; \
+    case "$TARGETARCH" in \
+        arm64) cpu=generic; re='\s[zp][0-9]{1,2}(\.[bhsdq]|/[mz])'; what=SVE ;; \
+        amd64) cpu=x86-64; re='zmm[0-9]'; what=AVX-512 ;; \
+        *) echo "error: unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    RUSTFLAGS="-C target-cpu=$cpu" \
         python3.12 -m pip wheel --no-deps --no-binary ffsim "ffsim==${FFSIM_VERSION}" -w /wheels; \
-        mkdir /tmp/whl && python3.12 -m zipfile -e /wheels/ffsim-*.whl /tmp/whl; \
-        for so in /tmp/whl/ffsim/_lib*.so; do \
-            if objdump -d --no-show-raw-insn "$so" \
-                | grep -qE '\s(index|ptrue|whilelo|whilelt|ld1d|st1d)\s+[zp][0-9]'; then \
-                echo "error: $so has SVE instructions" >&2; exit 1; \
-            fi; \
-        done; \
-    else \
-        python3.12 -m pip download --no-deps --only-binary :all: "ffsim==${FFSIM_VERSION}" -d /wheels; \
-    fi; \
+    mkdir /tmp/whl && python3.12 -m zipfile -e /wheels/ffsim-*.whl /tmp/whl; \
+    for so in /tmp/whl/ffsim/_lib*.so; do \
+        n=$(objdump -d --no-show-raw-insn "$so" | grep -cE "$re" || true); \
+        if [ "$n" -gt 0 ]; then echo "error: $so has $n $what instructions" >&2; exit 1; fi; \
+        echo "$so: target-cpu=$cpu, no $what instructions"; \
+    done; \
     ls /wheels
 
 # ------------------------------------------------------------------ bundle

@@ -16,11 +16,17 @@ PROJECT := qcsc-demo
 NEED_SOURCE = @test -f Dockerfile || { echo "No Dockerfile here: build from a clone of" \
 	"https://github.com/BStar14/qcsc-slurm-cluster, or pull the image instead"; exit 1; }
 
+# The SPANK plugin's file (plugstack.conf), the empty one the image seeds it with, and the
+# qcsc user's file from `qcsc-qrmi login`.
+QRMI_PLUGIN_CONFIG := /etc/slurm/qrmi_config.json
+QRMI_SEED := /usr/share/qcsc-cluster/slurm/qrmi_config.json
+QRMI_USER_CONFIG := /home/qcsc/.qiskit/qrmi_config.json
+
 # A login shell of the qcsc user on the login node, as after `ssh`.
 LOGIN_SHELL = $(COMPOSE) exec -u qcsc -w /home/qcsc login bash -l
 
 .PHONY: help build build-cluster up down clean reset-home status login shell-login \
-	add-key jupyter jupyter-stop logs smoke
+	qrmi-config add-key jupyter jupyter-stop logs smoke
 
 help:
 	@echo "build          build $(IMAGE) for this machine, with qcsc-prefect $(QCSC_PREFECT_REF)"
@@ -31,6 +37,7 @@ help:
 	@echo "reset-home     DELETE /home/qcsc and refill it from the image (after a new image)"
 	@echo "clean          stop the cluster and DELETE all volumes, including /home and /shared"
 	@echo "status         sinfo and squeue"
+	@echo "qrmi-config    Slurm path: install ~/.qiskit/qrmi_config.json for the SPANK plugin"
 	@echo "jupyter        start JupyterLab on login and print its URL; jupyter-stop stops it"
 	@echo "add-key        add KEY=$(KEY) to the qcsc user's authorized_keys, for ssh"
 	@echo "shell-login    root shell on login"
@@ -68,6 +75,8 @@ up:
 	  echo "See the logs with: $(COMPOSE) logs mysql slurmdbd slurmctld"; exit 1
 	@for n in c1 c2; do $(COMPOSE) exec -T slurmctld scontrol update nodename=$$n state=resume 2>/dev/null || true; done
 	@$(COMPOSE) exec -T login sinfo
+	@$(COMPOSE) exec -T login bash -c '[ "$$(cat $(QRMI_SEED))" != "$$(cat $(QRMI_PLUGIN_CONFIG))" ]' \
+	  || echo "Slurm path: the SPANK plugin has no QPUs yet; run make qrmi-config after qcsc-qrmi login."
 
 login:
 	$(LOGIN_SHELL)
@@ -88,6 +97,14 @@ clean:
 status:
 	$(COMPOSE) exec -T login sinfo
 	$(COMPOSE) exec -T login squeue
+
+# The Slurm path's administrator step: copy the user's qrmi_config.json to the file that
+# the SPANK plugin reads; /etc/slurm is one volume for all nodes. Never prints the file.
+qrmi-config:
+	@$(COMPOSE) exec -T login bash -c 'test -s $(QRMI_USER_CONFIG) || { \
+	  echo "No $(QRMI_USER_CONFIG) yet: run qcsc-qrmi login on the login node first."; exit 1; }; \
+	  install -m 600 -o root -g root $(QRMI_USER_CONFIG) $(QRMI_PLUGIN_CONFIG) && \
+	  echo "Installed $(QRMI_USER_CONFIG) as $(QRMI_PLUGIN_CONFIG) for the SPANK plugin on c1 and c2."'
 
 add-key:
 	@test -f "$(KEY)" || { echo "no public key at $(KEY); pass KEY=path/to/key.pub"; exit 1; }

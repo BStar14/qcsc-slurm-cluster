@@ -168,7 +168,8 @@ LABEL org.opencontainers.image.title="qcsc-slurm-cluster" \
 
 # Runtime libraries of Slurm and MPI, the cluster services, and the user toolchain
 # that the solver build scripts of qcsc-prefect need (C/C++/Fortran, CMake, git,
-# OpenBLAS/LAPACK, pkg-config, Python 3.12 with headers).
+# OpenBLAS/LAPACK, pkg-config, Python 3.12 with headers). vim-enhanced gives `vim` with
+# syntax highlighting, for editing sqd_blocks.toml at the prompt.
 RUN dnf -y install dnf-plugins-core epel-release \
     && dnf config-manager --set-enabled crb \
     && dnf -y install \
@@ -178,7 +179,7 @@ RUN dnf -y install dnf-plugins-core epel-release \
         openblas-devel lapack-devel \
         python3.12 python3.12-devel python3.12-pip \
         curl-minimal ca-certificates which tar gzip bzip2 xz unzip findutils \
-        procps-ng iproute iputils less vim-minimal nano bash-completion \
+        procps-ng iproute iputils less vim-minimal vim-enhanced nano bash-completion \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
@@ -201,6 +202,9 @@ RUN printf '%s\n' \
         'export PATH=/opt/openmpi/bin:$PATH' \
         'export LD_LIBRARY_PATH=/opt/openmpi/lib:/opt/pmix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}' \
         > /etc/profile.d/openmpi.sh \
+    && printf '%s\n' 'export EDITOR=vim VISUAL=vim' 'alias vi=vim' > /etc/profile.d/qcsc-editor.sh \
+    && printf '%s\n' '" Vim 8.2 has no TOML syntax; INI highlighting fits its tables, keys and comments.' \
+        'autocmd FileType toml setlocal syntax=dosini' > /etc/vimrc.local \
     && printf '%s\n' /opt/openmpi/lib /opt/pmix/lib > /etc/ld.so.conf.d/qcsc-mpi.conf \
     && ldconfig \
     && alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 10

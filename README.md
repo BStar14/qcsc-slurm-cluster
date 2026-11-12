@@ -20,6 +20,7 @@ qcsc-prefect is already installed, so you start the setup guide at Step 3.
 | OpenMPI | 4.1.8 | Built with Slurm and PMIx support, at `/opt/openmpi`, on `PATH` |
 | QRMI SPANK plugin | spank-plugins `c3d5679`, QRMI `3deb512` | `/usr/lib64/slurm/spank_qrmi.so`, adds `srun --qpu` and `sbatch --qpu`; a count-only `qpu` GRES on each compute node |
 | Toolchain | Rocky 9 packages | gcc, g++, gfortran, make, CMake, git, OpenBLAS, LAPACK, pkg-config, Python 3.12 with headers |
+| Editors | Rocky 9 packages | Vim (`vim`, and `vi` in shells), with highlighting for `sqd_blocks.toml`, and nano; `EDITOR` is `vim` |
 | OpenSSH | Rocky 9 packages | sshd on the login node, key-only, optional |
 | JupyterLab | 4.6.6 | `/opt/jupyter`, optional, started by `make jupyter` |
 
@@ -158,6 +159,10 @@ are the administrator, and `/etc/slurm` is one volume for all nodes. After each
 ```bash
 sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json
 ```
+
+From your computer, in the `qcsc-demo` folder, `make qrmi-config` runs the same step in
+the login container. `make up` reminds you of it while the plugin's file is still the
+empty one from the image.
 
 Without it, the QRMI job fails within seconds, and its `output.err` starts with
 `spank_qrmi, resource <backend> not found in /etc/slurm/qrmi_config.json`. Keep the

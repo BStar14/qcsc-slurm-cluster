@@ -25,9 +25,9 @@ The image follows
 and the Requirements section of the
 [QCSC-Prefect tutorial](https://quantum.cloud.ibm.com/docs/en/tutorials/manage-qcsc-workflow-with-qcsc-prefect).
 It has done Steps 2, 4, 5 and 8 of the setup guide, and the tutorial's "Install the SQD
-workflow on the workflow host" and "Install the Fulqrum solver on a compute node". You do
-the rest, the paths and the logins, in [Quick start](#quick-start). The `qcsc` user has
-the following items.
+workflow on the workflow host" and "Install the Fulqrum solver on a compute node". The
+preinstalled steps only make the setup faster: follow both documents as written, and the
+steps that are already done finish quickly. The `qcsc` user has the following items.
 
 | Item | Path |
 |---|---|
@@ -45,6 +45,10 @@ QRMI in `~/venv/qcsc-host` is an extra of this image: the setup guide installs Q
 | `/home` | login, c1, c2 | Home of the `qcsc` user: the checkout and the environments |
 | `/shared` | login, c1, c2 | Shared data; the work directory is `/shared/work/qcsc-prefect` |
 | `/etc/slurm` | every Slurm node | Slurm configuration and the QRMI `qrmi_config.json` |
+
+The containers are `qcsc-demo-login`, `qcsc-demo-c1`, `qcsc-demo-c2`, `qcsc-demo-slurmctld`,
+`qcsc-demo-slurmdbd`, and `qcsc-demo-mysql`. Inside the cluster, the hostnames are
+`login`, `c1`, `c2`, and so on.
 
 The tutorial notebook itself runs on your own computer, in its own environment, not on
 this cluster. The cluster runs the workflow.
@@ -90,20 +94,18 @@ make up
 ```
 
 Open a shell on the login node, the same shell that `ssh` gives on a real cluster. Run the
-remaining commands of this section in it.
+remaining commands of this section in it. `exit` leaves the login node, and the cluster
+keeps running. `make smoke` checks the cluster and the installation, and `make down`
+stops the cluster.
 
 ```bash
 make login
 ```
 
-Set the paths of the setup guide, go to the checkout, and activate the workflow
-environment. Do this in every new shell on the login node.
+Go to the checkout, and activate the workflow environment.
 
 ```bash
-export QCSC_PREFECT="$HOME/qcsc-prefect"
-export QCSC_WORK_DIR=/shared/work/qcsc-prefect
-mkdir -p "$QCSC_WORK_DIR"
-cd "$QCSC_PREFECT"
+cd ~/qcsc-prefect
 source ~/venv/qcsc-host/bin/activate
 ```
 
@@ -134,48 +136,11 @@ sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json
 > available, use the IQP path with your own credentials instead, as in
 > [QRMI Runtime mode selection](#qrmi-runtime-mode-selection).
 
-`exit` leaves the login node, and the cluster keeps running. `make smoke` checks the
-cluster and the installation, and `make down` stops the cluster. The containers are
-`qcsc-demo-login`, `qcsc-demo-c1`, `qcsc-demo-c2`, `qcsc-demo-slurmctld`,
-`qcsc-demo-slurmdbd`, and `qcsc-demo-mysql`. Inside the cluster, the hostnames are
-`login`, `c1`, `c2`, and so on.
-
-The extracted `compose.yml` names the exact version of the image that it came from, for
-example `quay.io/boseong14/qcsc-slurm-cluster:0.3.1`, so the cluster stays on that version
-until you extract a newer bundle.
-
-## Run the tutorial
-
-Continue with the
-[QCSC-Prefect tutorial](https://quantum.cloud.ibm.com/docs/en/tutorials/manage-qcsc-workflow-with-qcsc-prefect).
-In its Requirements section, skip "Install the SQD workflow on the workflow host" and
-"Install the Fulqrum solver on a compute node", because the image did them, and start at
-"Configure and create the Prefect blocks on the workflow host". Use the following values
-in `sqd_blocks.toml`.
-
-| Parameter | Value |
-|---|---|
-| `python_executable` | `"/home/qcsc/venv/qcsc-node/bin/python"` |
-| `queue` | `"normal"` |
-| `work_dir` | `"/shared/work/qcsc-prefect"` |
-| `fulqrum_executable` | `"/home/qcsc/qcsc-prefect/packages/qcsc-prefect-fulqrum/native/fulqrum/bin/qcsc-fulqrum-solve"` |
-| `eigensolver` | `"primme"` (Fulqrum is built with PRIMME) |
-
-Keep `project` commented out, because the cluster has no Slurm accounts.
-
-Write absolute paths, which `realpath` prints, rather than paths that start with `~`.
-`sqd-create-blocks` expands `~` in `sqd_blocks.toml`, but a `~` path that you type in a
-block form in Prefect Cloud reaches the job script unchanged, and the job fails before it
-starts.
-
-```bash
-realpath ~/qcsc-prefect/packages/qcsc-prefect-fulqrum/native/fulqrum/bin/qcsc-fulqrum-solve
-```
-
-```text
-# Output
-/home/qcsc/qcsc-prefect/packages/qcsc-prefect-fulqrum/native/fulqrum/bin/qcsc-fulqrum-solve
-```
+Now follow the
+[QCSC-Prefect tutorial](https://quantum.cloud.ibm.com/docs/en/tutorials/manage-qcsc-workflow-with-qcsc-prefect)
+on the login node, from its Requirements section to your first run. For the setup
+details behind these commands, see
+[Set up QCSC-Prefect on a Slurm cluster](https://quantum.cloud.ibm.com/docs/en/guides/qcsc-prefect-setup).
 
 ## QRMI Runtime mode selection
 
@@ -258,7 +223,9 @@ All of them work on the same login node, as the `qcsc` user.
 
 ## Update to a new image
 
-In the `qcsc-demo` folder, extract the bundle of the new image, and restart the cluster
+The extracted `compose.yml` names the exact version of the image that it came from, for
+example `quay.io/boseong14/qcsc-slurm-cluster:0.3.1`, so the cluster stays on that version
+until you extract a newer bundle. In the `qcsc-demo` folder, extract the bundle of the new image, and restart the cluster
 with it. The bundle replaces `compose.yml` and the `Makefile`, and keeps your `.env`.
 
 ```bash
@@ -288,7 +255,7 @@ first. `/shared` and `/etc/slurm` stay.
 | `Munge decode failed` | The volumes come from another cluster; `make clean`, then `make up` |
 | `WARNING: /home/qcsc is not from this image` in `docker compose logs login` | See [Update to a new image](#update-to-a-new-image) |
 | A QRMI job fails, and `output.err` says `resource <backend> not found in /etc/slurm/qrmi_config.json` | The plugin's file does not list that QPU; run the `sudo install` command of [Quick start](#quick-start), or use the [IQP path](#iqp-path) |
-| A solver job fails with `QCSC Prefect preflight failed: executable '~/...' does not exist` | Write the absolute path, as in [Run the tutorial](#run-the-tutorial) |
+| A solver job fails with `QCSC Prefect preflight failed: executable '~/...' does not exist` | A block form in Prefect Cloud does not expand `~`. Write the absolute path that `realpath` prints, for example `/home/qcsc/qcsc-prefect/...` |
 | `make jupyter` says that port 8888 is in use | Set `JUPYTER_PORT` in `.env`, then `make down && make up` |
 | SSH warns that the host key changed | The `ssh_host_keys` volume was recreated; remove the old line with `ssh-keygen -R "[127.0.0.1]:2222"` |
 

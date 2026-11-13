@@ -6,6 +6,126 @@ on a laptop or a workstation. It gives you a login node, two compute nodes, and 
 services behind them, with the same layout as a real HPC cluster: you work on the login
 node, and you reach the compute nodes only through `srun` and `sbatch`.
 
+## Prerequisites
+
+- **Container engine:** [Rancher Desktop](https://rancherdesktop.io/), or
+  [Docker Desktop](https://www.docker.com/products/docker-desktop/). Both include Docker
+  Compose v2.
+- **Windows only:** [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install). Run
+  every command of this README in the WSL shell.
+- **`make` and `tar`:** macOS and Linux have them. If `make` is missing, run
+  `xcode-select --install` on macOS, or `sudo apt install make` on Ubuntu and in WSL.
+
+The default cluster needs 4 CPUs and 18 GB of memory for Docker: 8 GB for each of the two
+compute nodes, and about 2 GB for the other containers. On a smaller machine, shrink the
+compute nodes in `.env` (see [Quick start](#quick-start)).
+
+Set up Rancher Desktop in **Preferences**:
+
+1. **Container Engine** > **General**: choose **dockerd (moby)**.
+2. **Kubernetes**: clear **Enable Kubernetes**.
+3. **Virtual Machine** > **Hardware** (macOS and Linux): set **CPUs** to 4 or more, and
+   **Memory** to 18 GB or more.
+4. **WSL** > **Integrations** (Windows): turn on your WSL distribution.
+
+In Docker Desktop, set the same CPUs and memory in **Settings** > **Resources** >
+**Advanced** (macOS and Linux). On Windows, turn on your distribution in **Settings** >
+**Resources** > **WSL integration**.
+
+On Windows, WSL2 sets the CPUs and memory of both apps. Add `processors=4` and
+`memory=18GB` to the `[wsl2]` section of `%UserProfile%\.wslconfig`, then run
+`wsl --shutdown` (see [WSL settings](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)).
+
+## Quick start
+
+Create a folder for the cluster, and go to it.
+
+```bash
+mkdir qcsc-demo
+cd qcsc-demo
+```
+
+Extract the files that run the cluster from the image: `compose.yml`, the `Makefile`,
+`.devcontainer/`, `.env.example`, `tests/`, and this README. Keep `-t` out of this
+command, because it corrupts the tar stream.
+
+> [!WARNING]
+> The first run downloads the image from Quay, for your computer's `amd64` or `arm64`:
+> about 1.5 GB, which takes a few minutes on a fast connection.
+
+```bash
+docker run --rm quay.io/boseong14/qcsc-slurm-cluster:latest bundle | tar -x
+```
+
+To change the ports or the size of the compute nodes, copy `.env.example` to `.env`, and
+edit it before the first start.
+
+```bash
+# Optional
+cp .env.example .env
+```
+
+Start the cluster. The first start takes about a minute, because it creates the Slurm
+database.
+
+```bash
+make up
+```
+
+From the `qcsc-demo` folder, `make smoke` checks the cluster and the installation, and
+`make down` stops the cluster.
+
+Open a shell on the login node.
+
+```bash
+make login
+```
+
+> [!NOTE]
+> From now on, the shell runs on the login node, as after `ssh` on a real cluster. Run the
+> remaining commands of this section in it. `exit` returns to your computer, and the
+> cluster keeps running.
+
+Go to the checkout, and activate the workflow environment.
+
+```bash
+cd ~/qcsc-prefect
+source ~/venv/qcsc-host/bin/activate
+```
+
+Log in to Prefect Cloud. Choose **Paste an API key**, paste a Prefect Cloud API key, and
+choose your workspace.
+
+```bash
+prefect cloud login
+```
+
+Store your IBM Quantum credentials and save the `qrmi-runtime` block, as in Step 7 of the
+setup guide.
+
+```bash
+qcsc-qrmi login
+```
+
+Install your `qrmi_config.json` for the QRMI SPANK plugin. Run it again after each
+`qcsc-qrmi login` or `qcsc-qrmi refresh`.
+
+```bash
+sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json
+```
+
+> [!NOTE]
+> This command is for the Slurm path, where QRMI is integrated with the Slurm scheduler,
+> and on a real cluster only the administrator can run it. Where the Slurm path is not
+> available, use the IQP path with your own credentials instead, as in
+> [QRMI Runtime mode selection](#qrmi-runtime-mode-selection).
+
+Now follow the
+[QCSC-Prefect tutorial](https://quantum.cloud.ibm.com/docs/en/tutorials/manage-qcsc-workflow-with-qcsc-prefect)
+on the login node, from its Requirements section to your first run. For the setup
+details behind these commands, see
+[Set up QCSC-Prefect on a Slurm cluster](https://quantum.cloud.ibm.com/docs/en/guides/qcsc-prefect-setup).
+
 ## What is inside
 
 | Component | Version | Notes |
@@ -52,95 +172,6 @@ The containers are `qcsc-demo-login`, `qcsc-demo-c1`, `qcsc-demo-c2`, `qcsc-demo
 
 The tutorial notebook itself runs on your own computer, in its own environment, not on
 this cluster. The cluster runs the workflow.
-
-## Quick start
-
-You need Docker with Compose v2, `make`, and `tar`. Give Docker enough memory for both
-compute nodes (8 GB each by default) and about 2 GB more for the other containers. On
-Windows, run the commands in WSL.
-
-Create a folder for the cluster.
-
-```bash
-mkdir qcsc-demo
-```
-
-```bash
-cd qcsc-demo
-```
-
-Extract the files that run the cluster from the image: `compose.yml`, the `Makefile`,
-`.devcontainer/`, `.env.example`, `tests/`, and this README. Docker pulls the image from
-Quay for your computer, `amd64` or `arm64`. Keep `-t` out of this command, because it
-corrupts the tar stream.
-
-```bash
-docker run --rm quay.io/boseong14/qcsc-slurm-cluster:latest bundle | tar -x
-```
-
-To change the ports or the size of the compute nodes, copy `.env.example` to `.env`, and
-edit it before the first start.
-
-```bash
-# Optional
-cp .env.example .env
-```
-
-Start the cluster. The first start takes about a minute, because it creates the Slurm
-database.
-
-```bash
-make up
-```
-
-Open a shell on the login node, the same shell that `ssh` gives on a real cluster. Run the
-remaining commands of this section in it. `exit` leaves the login node, and the cluster
-keeps running. `make smoke` checks the cluster and the installation, and `make down`
-stops the cluster.
-
-```bash
-make login
-```
-
-Go to the checkout, and activate the workflow environment.
-
-```bash
-cd ~/qcsc-prefect
-source ~/venv/qcsc-host/bin/activate
-```
-
-Log in to Prefect Cloud. Choose **Paste an API key**, paste a Prefect Cloud API key, and
-choose your workspace.
-
-```bash
-prefect cloud login
-```
-
-Store your IBM Quantum credentials and save the `qrmi-runtime` block, as in Step 7 of the
-setup guide.
-
-```bash
-qcsc-qrmi login
-```
-
-Install your `qrmi_config.json` for the QRMI SPANK plugin. Run it again after each
-`qcsc-qrmi login` or `qcsc-qrmi refresh`.
-
-```bash
-sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json
-```
-
-> [!NOTE]
-> This command is for the Slurm path, where QRMI is integrated with the Slurm scheduler,
-> and on a real cluster only the administrator can run it. Where the Slurm path is not
-> available, use the IQP path with your own credentials instead, as in
-> [QRMI Runtime mode selection](#qrmi-runtime-mode-selection).
-
-Now follow the
-[QCSC-Prefect tutorial](https://quantum.cloud.ibm.com/docs/en/tutorials/manage-qcsc-workflow-with-qcsc-prefect)
-on the login node, from its Requirements section to your first run. For the setup
-details behind these commands, see
-[Set up QCSC-Prefect on a Slurm cluster](https://quantum.cloud.ibm.com/docs/en/guides/qcsc-prefect-setup).
 
 ## QRMI Runtime mode selection
 

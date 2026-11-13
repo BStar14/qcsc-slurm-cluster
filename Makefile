@@ -76,7 +76,8 @@ up:
 	@for n in c1 c2; do $(COMPOSE) exec -T slurmctld scontrol update nodename=$$n state=resume 2>/dev/null || true; done
 	@$(COMPOSE) exec -T login sinfo
 	@$(COMPOSE) exec -T login bash -c '[ "$$(cat $(QRMI_SEED))" != "$$(cat $(QRMI_PLUGIN_CONFIG))" ]' \
-	  || echo "Slurm path: the SPANK plugin has no QPUs yet; run make qrmi-config after qcsc-qrmi login."
+	  || echo "Slurm path: the SPANK plugin has no QPUs yet. After qcsc-qrmi login, run on the login node:" \
+	          "sudo install -m 600 ~/.qiskit/qrmi_config.json /etc/slurm/qrmi_config.json"
 
 login:
 	$(LOGIN_SHELL)
